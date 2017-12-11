@@ -25,50 +25,86 @@ Example
 -------
 
 ```go
-package main;
+package main
 
 import (
-	"github.com/liamzdenek/go-pthreads"
+	pthread "./go-pthreads"
 	"fmt"
+	"io"
+	"log"
+	"net"
+	"time"
 )
 
 func main() {
-	thread := pthread.Create(func() {
-		// we're within the pthread
-		counter := 1;
-		for {
-			// time to make a blocking function call. The library includes
-			// pthread.sleep for demo purposes, but this will work with any
-			// library that causes IO wait
-		
-			// an example using github.com/alecthomas/gozmq can be found in
-			// Thread_test.go
+	fmt.Println("Binding to localhost:8000")
+	thread1 := pthread.Create(spinner, 70*time.Millisecond)
+	thread2 := pthread.Create(listener, nil)
 
-			fmt.Printf("Hello, %d\n", counter)
-			counter++
-			pthread.Sleep(1) // seconds
+	input := ""
+	fmt.Scanln(&input) // Hit return to exit.
+	thread1.Kill()
+	thread2.Kill()
+}
+
+// Must accept an interface type as this is intended to be a pthread
+func listener(args interface{}) {
+	listener, err := net.Listen("tcp", "localhost:8000")
+	if err != nil {
+		log.Fatal(err)
+	}
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			log.Print(err) // e.g., connection aborted
+			continue
 		}
-	})
+		go handleConn(conn) // handle connections in coroutines
+	}
 
-	// within the main goroutine
-	pthread.Sleep(3)
+}
 
-	fmt.Printf("Killing thread\n");
-	thread.Kill()
+func handleConn(c net.Conn) {
+	defer c.Close()
+	for {
+		_, err := io.WriteString(c, time.Now().Format("15:04:05\n"))
+		if err != nil {
+			return // e.g., client disconnected
+		}
+		time.Sleep(1 * time.Second)
+	}
+}
 
-	pthread.Sleep(3);
+func spinner(args interface{}) {
+	delay := args.(time.Duration)
+	for {
+		for _, r := range `-\|/` {
+			fmt.Printf("\r%c", r)
+			time.Sleep(delay)
+		}
+	}
 }
 ```
 
 Output:
+
 ```
-$ time go run test.go
-Hello, 1
-Hello, 2
-Hello, 3
-Killing thread
-go run test.go  0.28s user 0.09s system 5% cpu 6.421 total
+$ ./clock_threaded
+Binding to localhost:8000
+/
 ```
+
+From another shell
+
+```
+$ nc localhost 8000
+10:31:26
+10:31:27
+10:31:28
+^C
+
+```
+
 
 Pros/Cons
 ---------
